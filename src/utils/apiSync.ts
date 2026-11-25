@@ -144,7 +144,7 @@ async function apiRequest<T = Record<string, unknown>>(
   if (options.requireAuth && !inMemoryAuthToken) {
     return { ok: false, error: 'Not signed in to MySQL backend.' };
   }
-  const timeoutMs = options.timeoutMs ?? 15000;
+  const timeoutMs = options.timeoutMs ?? 25000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -186,8 +186,9 @@ export interface MySqlBootstrapStatus {
   adminNeedsPasswordSetup: boolean;
 }
 
-export async function fetchMySqlBootstrapStatus(): Promise<MySqlBootstrapStatus> {
-  const res = await apiRequest<MySqlBootstrapStatus>('/api/auth/bootstrap-status');
+export async function fetchMySqlBootstrapStatus(force = false): Promise<MySqlBootstrapStatus> {
+  const endpoint = force ? '/api/auth/bootstrap-status?force=1' : '/api/auth/bootstrap-status';
+  const res = await apiRequest<MySqlBootstrapStatus>(endpoint, { timeoutMs: 25000 });
   if (res.ok && res.data) {
     mySqlConfiguredOnServer = Boolean(res.data.mysqlConfigured);
     mySqlDiagnostic = res.data.mysqlDiagnostic || (res.data.mysqlConnected ? 'connected' : 'connection_failed');
