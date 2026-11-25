@@ -21,6 +21,8 @@ let cachedSignature = '';
 let lastPingAt = 0;
 let lastPingResult = false;
 let lastLoggedErrorAt = 0;
+let consecutiveTimeouts = 0;
+let inFlightPingPromise: Promise<boolean> | null = null;
 let lastDiagnostic: MySqlDiagnosticCategory = 'not_configured';
 let tlsFallbackMode: 'none' | 'strict_ca' | 'encrypted_unverified' = 'none';
 let adminBootstrapAttempted = false;
@@ -228,6 +230,7 @@ export function getMySqlPool(): Pool | null {
     if (cachedPool) {
       void cachedPool.end().catch(() => {});
     }
+    const poolLimit = Math.max(2, Math.min(20, Number(process.env.MYSQL_POOL_LIMIT || 5) || 5));
     cachedPool = mysql.createPool({
       host: cfg.host,
       port: cfg.port,
@@ -235,11 +238,11 @@ export function getMySqlPool(): Pool | null {
       password: cfg.password,
       database: cfg.database,
       waitForConnections: true,
-      connectionLimit: 10,
-      maxIdle: 4,
-      idleTimeout: 60000,
+      connectionLimit: poolLimit,
+      maxIdle: Math.min(2, poolLimit),
+      idleTimeout: 300000,
       queueLimit: 0,
-      connectTimeout: 10000,
+      connectTimeout: 20000,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
       dateStrings: true,
@@ -249,6 +252,7 @@ export function getMySqlPool(): Pool | null {
     cachedSignature = sig;
     lastPingAt = 0;
     lastPingResult = false;
+    consecutiveTimeouts = 0;
     adminBootstrapAttempted = false;
     schemaSyncPromise = null;
   }
@@ -517,96 +521,128 @@ export async function checkMySqlConnection(force = false): Promise<boolean> {
     return false;
   }
   const now = Date.now();
-  if (!force && lastPingAt > 0 && now - lastPingAt < 5000) {
+  const cacheWindowMs = lastPingResult ? 30000 : 1000;
+  if (!force && lastPingAt > 0 && now - lastPingAt < cacheWindowMs) {
     return lastPingResult;
   }
-  try {
-    await pingPoolWithTimeout(pool, 6000);
-    lastPingAt = now;
-    lastPingResult = true;
-    lastDiagnostic = 'connected';
-    if (!schemaSyncPromise) {
-      schemaSyncPromise = ensureMySqlSchemaUpToDate(pool).catch(() => {});
-    }
-    if (!adminBootstrapAttempted) {
-      adminBootstrapAttempted = true;
-      void bootstrapAdminPasswordFromEnv().catch(() => {});
-    }
-    return true;
-  } catch (err) {
-    const category = classifyMySqlError(err);
-    const errRec = (err && typeof err === 'object' ? err : {}) as { code?: string; message?: string };
+  if (inFlightPingPromise) {
+    return inFlightPingPromise;
+  }
 
-    // If a stale socket timed out, recycle the pool cleanly so subsequent requests recover immediately
-    if (category === 'timeout' && cachedPool) {
-      const stalePool = cachedPool;
-      cachedPool = null;
-      cachedSignature = '';
-      void stalePool.end().catch(() => {});
-    }
+  inFlightPingPromise = (async () => {
+    try {
+      await pingPoolWithTimeout(pool!, 15000);
+      lastPingAt = Date.now();
+      lastPingResult = true;
+      consecutiveTimeouts = 0;
+      lastDiagnostic = 'connected';
+      if (!schemaSyncPromise) {
+        schemaSyncPromise = ensureMySqlSchemaUpToDate(pool!).catch(() => {});
+      }
+      if (!adminBootstrapAttempted) {
+        adminBootstrapAttempted = true;
+        void bootstrapAdminPasswordFromEnv().catch(() => {});
+      }
+      return true;
+    } catch (err) {
+      const category = classifyMySqlError(err);
+      const errRec = (err && typeof err === 'object' ? err : {}) as { code?: string; message?: string };
 
-    // Auto-negotiate TLS on managed cloud databases (e.g. Sevalla MySQL 8.0 with private CA)
-    // unless the operator explicitly forced MYSQL_SSL_REJECT_UNAUTHORIZED=true.
-    if (category === 'tls_error' && !cfg.sslRejectUnauthorizedExplicit) {
-      const nextMode: 'strict_ca' | 'encrypted_unverified' | null =
-        tlsFallbackMode === 'none' && !cfg.ssl && cfg.sslCa
-          ? 'strict_ca'
-          : tlsFallbackMode !== 'encrypted_unverified'
-            ? 'encrypted_unverified'
-            : null;
-      if (nextMode) {
-        console.warn(
-          `[MedEx MySQL] TLS handshake failed (${errRec.code || 'TLS_ERROR'}); retrying with ${
-            nextMode === 'strict_ca' ? 'detected CA certificate' : 'encrypted TLS for managed private CA'
-          }.`
-        );
-        tlsFallbackMode = nextMode;
-        pool = getMySqlPool();
-        if (pool) {
-          try {
-            await pingPoolWithTimeout(pool, 6000);
-            lastPingAt = Date.now();
-            lastPingResult = true;
-            lastDiagnostic = 'connected';
-            if (!schemaSyncPromise) {
-              schemaSyncPromise = ensureMySqlSchemaUpToDate(pool).catch(() => {});
+      if (category === 'timeout') {
+        consecutiveTimeouts += 1;
+        // Recycle pool only after consecutive timeouts so a single slow cloud wakeup does not thrash warm TLS sockets
+        if (consecutiveTimeouts >= 2 && cachedPool) {
+          const stalePool = cachedPool;
+          cachedPool = null;
+          cachedSignature = '';
+          consecutiveTimeouts = 0;
+          void stalePool.end().catch(() => {});
+        }
+      } else {
+        consecutiveTimeouts = 0;
+      }
+
+      // Auto-negotiate TLS on managed cloud databases (e.g. Sevalla MySQL 8.0 with private CA)
+      // unless the operator explicitly forced MYSQL_SSL_REJECT_UNAUTHORIZED=true.
+      if (category === 'tls_error' && !cfg.sslRejectUnauthorizedExplicit) {
+        const nextMode: 'strict_ca' | 'encrypted_unverified' | null =
+          tlsFallbackMode === 'none' && !cfg.ssl && cfg.sslCa
+            ? 'strict_ca'
+            : tlsFallbackMode !== 'encrypted_unverified'
+              ? 'encrypted_unverified'
+              : null;
+        if (nextMode) {
+          console.warn(
+            `[MedEx MySQL] TLS handshake failed (${errRec.code || 'TLS_ERROR'}); retrying with ${
+              nextMode === 'strict_ca' ? 'detected CA certificate' : 'encrypted TLS for managed private CA'
+            }.`
+          );
+          tlsFallbackMode = nextMode;
+          pool = getMySqlPool();
+          if (pool) {
+            try {
+              await pingPoolWithTimeout(pool, 15000);
+              lastPingAt = Date.now();
+              lastPingResult = true;
+              consecutiveTimeouts = 0;
+              lastDiagnostic = 'connected';
+              if (!schemaSyncPromise) {
+                schemaSyncPromise = ensureMySqlSchemaUpToDate(pool).catch(() => {});
+              }
+              if (!adminBootstrapAttempted) {
+                adminBootstrapAttempted = true;
+                void bootstrapAdminPasswordFromEnv().catch(() => {});
+              }
+              return true;
+            } catch (retryErr) {
+              const retryRec = (retryErr && typeof retryErr === 'object' ? retryErr : {}) as {
+                code?: string;
+                message?: string;
+              };
+              lastDiagnostic = classifyMySqlError(retryErr);
+              const errNow = Date.now();
+              if (errNow - lastLoggedErrorAt > 30000) {
+                lastLoggedErrorAt = errNow;
+                console.error(
+                  `[MedEx MySQL] Connection failed after TLS retry (${retryRec.code || lastDiagnostic}): ${retryRec.message || 'Unknown error'}`
+                );
+              }
+              lastPingAt = errNow;
+              lastPingResult = false;
+              return false;
             }
-            if (!adminBootstrapAttempted) {
-              adminBootstrapAttempted = true;
-              void bootstrapAdminPasswordFromEnv().catch(() => {});
-            }
-            return true;
-          } catch (retryErr) {
-            const retryRec = (retryErr && typeof retryErr === 'object' ? retryErr : {}) as {
-              code?: string;
-              message?: string;
-            };
-            lastDiagnostic = classifyMySqlError(retryErr);
-            if (now - lastLoggedErrorAt > 30000) {
-              lastLoggedErrorAt = now;
-              console.error(
-                `[MedEx MySQL] Connection failed after TLS retry (${retryRec.code || lastDiagnostic}): ${retryRec.message || 'Unknown error'}`
-              );
-            }
-            lastPingAt = now;
-            lastPingResult = false;
-            return false;
           }
         }
       }
-    }
 
-    lastDiagnostic = category;
-    if (now - lastLoggedErrorAt > 30000) {
-      lastLoggedErrorAt = now;
-      console.error(
-        `[MedEx MySQL] Connection failed (${errRec.code || category}) to ${cfg.host}:${cfg.port}/${cfg.database}: ${errRec.message || 'Unknown error'}`
-      );
+      lastDiagnostic = category;
+      const errNow = Date.now();
+      if (errNow - lastLoggedErrorAt > 30000) {
+        lastLoggedErrorAt = errNow;
+        console.error(
+          `[MedEx MySQL] Connection failed (${errRec.code || category}) to ${cfg.host}:${cfg.port}/${cfg.database}: ${errRec.message || 'Unknown error'}`
+        );
+      }
+      lastPingAt = errNow;
+      lastPingResult = false;
+      return false;
+    } finally {
+      inFlightPingPromise = null;
     }
-    lastPingAt = now;
-    lastPingResult = false;
-    return false;
-  }
+  })();
+
+  return inFlightPingPromise;
+}
+
+function isTransientSocketError(err: unknown): boolean {
+  const code = String(((err && typeof err === 'object' ? err : {}) as { code?: string }).code || '').toUpperCase();
+  return (
+    code === 'PROTOCOL_CONNECTION_LOST' ||
+    code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    code === 'ETIMEDOUT' ||
+    code === 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR'
+  );
 }
 
 export async function queryRows<T = Record<string, unknown>>(
@@ -617,8 +653,25 @@ export async function queryRows<T = Record<string, unknown>>(
   if (!pool) {
     throw new Error('MySQL database is not configured.');
   }
-  const [rows] = await pool.query<RowDataPacket[]>(sql, params);
-  return rows as unknown as T[];
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>(sql, params);
+    lastPingAt = Date.now();
+    lastPingResult = true;
+    lastDiagnostic = 'connected';
+    return rows as unknown as T[];
+  } catch (err) {
+    if (isTransientSocketError(err)) {
+      const retryPool = getMySqlPool();
+      if (retryPool) {
+        const [rows] = await retryPool.query<RowDataPacket[]>(sql, params);
+        lastPingAt = Date.now();
+        lastPingResult = true;
+        lastDiagnostic = 'connected';
+        return rows as unknown as T[];
+      }
+    }
+    throw err;
+  }
 }
 
 export async function queryOne<T = Record<string, unknown>>(
@@ -638,6 +691,9 @@ export async function executeSql(
     throw new Error('MySQL database is not configured.');
   }
   const [result] = await pool.execute<ResultSetHeader>({ sql, values: params });
+  lastPingAt = Date.now();
+  lastPingResult = true;
+  lastDiagnostic = 'connected';
   return result;
 }
 
