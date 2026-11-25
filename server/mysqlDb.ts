@@ -236,8 +236,12 @@ export function getMySqlPool(): Pool | null {
       database: cfg.database,
       waitForConnections: true,
       connectionLimit: 10,
+      maxIdle: 4,
+      idleTimeout: 60000,
       queueLimit: 0,
       connectTimeout: 10000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
       dateStrings: true,
       decimalNumbers: true,
       ssl: buildSslOptionForPool(cfg, tlsFallbackMode),
@@ -287,13 +291,19 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
 
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name
+      `SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name, COLUMN_TYPE AS column_type
        FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('users', 'merchant_profiles', 'rider_profiles', 'products', 'orders', 'problem_reports')`,
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('users', 'merchant_profiles', 'rider_profiles', 'products', 'orders', 'problem_reports', 'problem_report_status_history')`,
       [cfg.database]
     );
     const existing = new Set(
       rows.map((r) => `${String(r.table_name).toLowerCase()}.${String(r.column_name).toLowerCase()}`)
+    );
+    const columnTypes = new Map<string, string>(
+      rows.map((r) => [
+        `${String(r.table_name).toLowerCase()}.${String(r.column_name).toLowerCase()}`,
+        String(r.column_type || '').toLowerCase(),
+      ])
     );
     const existingTables = new Set(rows.map((r) => String(r.table_name).toLowerCase()));
 
@@ -308,22 +318,50 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
       }
     }
 
-    const enumWideningDdls = [
-      `ALTER TABLE \`users\` MODIFY COLUMN \`role\` ENUM('resident','merchant','rider','admin','delivery_manager','coupon_handler','inventory_manager','customer_service') NOT NULL`,
-      `ALTER TABLE \`problem_reports\` MODIFY COLUMN \`status\` ENUM('open','acknowledged','escalated','resolved','dismissed') NOT NULL DEFAULT 'open'`,
-      `ALTER TABLE \`problem_report_status_history\` MODIFY COLUMN \`status\` ENUM('open','acknowledged','escalated','resolved','dismissed') NOT NULL`,
-      `ALTER TABLE \`problem_report_status_history\` MODIFY COLUMN \`changed_by_role\` ENUM('resident','merchant','rider','admin','delivery_manager','coupon_handler','inventory_manager','customer_service') NOT NULL`,
+    const enumChecks: Array<{ key: string; requiredToken: string; ddl: string }> = [
+      {
+        key: 'users.role',
+        requiredToken: "'customer_service'",
+        ddl: `ALTER TABLE \`users\` MODIFY COLUMN \`role\` ENUM('resident','merchant','rider','admin','delivery_manager','coupon_handler','inventory_manager','customer_service') NOT NULL`,
+      },
+      {
+        key: 'problem_reports.status',
+        requiredToken: "'escalated'",
+        ddl: `ALTER TABLE \`problem_reports\` MODIFY COLUMN \`status\` ENUM('open','acknowledged','escalated','resolved','dismissed') NOT NULL DEFAULT 'open'`,
+      },
+      {
+        key: 'problem_report_status_history.status',
+        requiredToken: "'escalated'",
+        ddl: `ALTER TABLE \`problem_report_status_history\` MODIFY COLUMN \`status\` ENUM('open','acknowledged','escalated','resolved','dismissed') NOT NULL`,
+      },
+      {
+        key: 'problem_report_status_history.changed_by_role',
+        requiredToken: "'customer_service'",
+        ddl: `ALTER TABLE \`problem_report_status_history\` MODIFY COLUMN \`changed_by_role\` ENUM('resident','merchant','rider','admin','delivery_manager','coupon_handler','inventory_manager','customer_service') NOT NULL`,
+      },
     ];
-    for (const ddl of enumWideningDdls) {
+    for (const item of enumChecks) {
+      const currentType = columnTypes.get(item.key);
+      if (!currentType || currentType.includes(item.requiredToken)) continue;
       try {
-        await pool.execute(ddl);
+        await pool.execute(item.ddl);
       } catch {
         // Ignore if table not yet present or already widened
       }
     }
 
-    const newTableDdls = [
-      `CREATE TABLE IF NOT EXISTS \`user_permission_overrides\` (
+    const [tableRows] = await pool.query<RowDataPacket[]>(
+      `SELECT TABLE_NAME AS table_name
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('user_permission_overrides', 'coupons', 'customer_coupons', 'coupon_redemptions', 'inventory_movements', 'return_refund_requests')`,
+      [cfg.database]
+    );
+    const existingNewTables = new Set(tableRows.map((r) => String(r.table_name).toLowerCase()));
+
+    const newTableDdls: Array<{ table: string; ddl: string }> = [
+      {
+        table: 'user_permission_overrides',
+        ddl: `CREATE TABLE IF NOT EXISTS \`user_permission_overrides\` (
         \`override_id\` INT NOT NULL AUTO_INCREMENT,
         \`user_id\` INT NOT NULL,
         \`permission_code\` VARCHAR(96) NOT NULL,
@@ -333,7 +371,10 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
         PRIMARY KEY (\`override_id\`),
         UNIQUE KEY \`uq_user_perm_override\` (\`user_id\`, \`permission_code\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-      `CREATE TABLE IF NOT EXISTS \`coupons\` (
+      },
+      {
+        table: 'coupons',
+        ddl: `CREATE TABLE IF NOT EXISTS \`coupons\` (
         \`coupon_id\` INT NOT NULL AUTO_INCREMENT,
         \`code\` VARCHAR(64) NOT NULL,
         \`title\` VARCHAR(180) NOT NULL,
@@ -358,7 +399,10 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
         PRIMARY KEY (\`coupon_id\`),
         UNIQUE KEY \`uq_coupons_code\` (\`code\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-      `CREATE TABLE IF NOT EXISTS \`customer_coupons\` (
+      },
+      {
+        table: 'customer_coupons',
+        ddl: `CREATE TABLE IF NOT EXISTS \`customer_coupons\` (
         \`claim_id\` INT NOT NULL AUTO_INCREMENT,
         \`coupon_id\` INT NOT NULL,
         \`resident_id\` INT NOT NULL,
@@ -369,7 +413,10 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
         PRIMARY KEY (\`claim_id\`),
         UNIQUE KEY \`uq_customer_coupon_claim\` (\`coupon_id\`, \`resident_id\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-      `CREATE TABLE IF NOT EXISTS \`coupon_redemptions\` (
+      },
+      {
+        table: 'coupon_redemptions',
+        ddl: `CREATE TABLE IF NOT EXISTS \`coupon_redemptions\` (
         \`redemption_id\` INT NOT NULL AUTO_INCREMENT,
         \`coupon_id\` INT NULL,
         \`coupon_code\` VARCHAR(64) NOT NULL,
@@ -381,7 +428,10 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
         \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (\`redemption_id\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-      `CREATE TABLE IF NOT EXISTS \`inventory_movements\` (
+      },
+      {
+        table: 'inventory_movements',
+        ddl: `CREATE TABLE IF NOT EXISTS \`inventory_movements\` (
         \`movement_id\` INT NOT NULL AUTO_INCREMENT,
         \`product_id\` INT NOT NULL,
         \`merchant_id\` INT NOT NULL,
@@ -398,7 +448,10 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
         \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (\`movement_id\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-      `CREATE TABLE IF NOT EXISTS \`return_refund_requests\` (
+      },
+      {
+        table: 'return_refund_requests',
+        ddl: `CREATE TABLE IF NOT EXISTS \`return_refund_requests\` (
         \`return_id\` INT NOT NULL AUTO_INCREMENT,
         \`reference_code\` VARCHAR(64) NOT NULL,
         \`order_id\` INT NOT NULL,
@@ -423,16 +476,36 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
         PRIMARY KEY (\`return_id\`),
         UNIQUE KEY \`uq_return_refund_ref\` (\`reference_code\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+      },
     ];
-    for (const ddl of newTableDdls) {
+    for (const item of newTableDdls) {
+      if (existingNewTables.has(item.table)) continue;
       try {
-        await pool.execute(ddl);
+        await pool.execute(item.ddl);
       } catch {
         // Ignore non-fatal concurrent creation
       }
     }
   } catch {
     // Non-fatal: schema may already be up to date or restricted
+  }
+}
+
+async function pingPoolWithTimeout(pool: Pool, timeoutMs = 6000): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      pool.query('SELECT 1 AS ok'),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          const timeoutErr = new Error(`MySQL ping timed out after ${timeoutMs}ms`) as Error & { code?: string };
+          timeoutErr.code = 'ETIMEDOUT';
+          reject(timeoutErr);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -448,14 +521,13 @@ export async function checkMySqlConnection(force = false): Promise<boolean> {
     return lastPingResult;
   }
   try {
-    await pool.query('SELECT 1 AS ok');
+    await pingPoolWithTimeout(pool, 6000);
     lastPingAt = now;
     lastPingResult = true;
     lastDiagnostic = 'connected';
     if (!schemaSyncPromise) {
-      schemaSyncPromise = ensureMySqlSchemaUpToDate(pool);
+      schemaSyncPromise = ensureMySqlSchemaUpToDate(pool).catch(() => {});
     }
-    await schemaSyncPromise;
     if (!adminBootstrapAttempted) {
       adminBootstrapAttempted = true;
       void bootstrapAdminPasswordFromEnv().catch(() => {});
@@ -464,6 +536,14 @@ export async function checkMySqlConnection(force = false): Promise<boolean> {
   } catch (err) {
     const category = classifyMySqlError(err);
     const errRec = (err && typeof err === 'object' ? err : {}) as { code?: string; message?: string };
+
+    // If a stale socket timed out, recycle the pool cleanly so subsequent requests recover immediately
+    if (category === 'timeout' && cachedPool) {
+      const stalePool = cachedPool;
+      cachedPool = null;
+      cachedSignature = '';
+      void stalePool.end().catch(() => {});
+    }
 
     // Auto-negotiate TLS on managed cloud databases (e.g. Sevalla MySQL 8.0 with private CA)
     // unless the operator explicitly forced MYSQL_SSL_REJECT_UNAUTHORIZED=true.
@@ -484,14 +564,13 @@ export async function checkMySqlConnection(force = false): Promise<boolean> {
         pool = getMySqlPool();
         if (pool) {
           try {
-            await pool.query('SELECT 1 AS ok');
+            await pingPoolWithTimeout(pool, 6000);
             lastPingAt = Date.now();
             lastPingResult = true;
             lastDiagnostic = 'connected';
             if (!schemaSyncPromise) {
-              schemaSyncPromise = ensureMySqlSchemaUpToDate(pool);
+              schemaSyncPromise = ensureMySqlSchemaUpToDate(pool).catch(() => {});
             }
-            await schemaSyncPromise;
             if (!adminBootstrapAttempted) {
               adminBootstrapAttempted = true;
               void bootstrapAdminPasswordFromEnv().catch(() => {});
