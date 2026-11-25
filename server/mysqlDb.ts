@@ -1,12 +1,28 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import mysql, { type Pool, type PoolConnection, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
 import { hashPassword, toMySqlDateTime, verifySessionToken } from './authService.ts';
 import { emitRealtimeSync } from './realtimeBus.ts';
 import type { AccountStatus, UserRole } from '../src/types/medex.ts';
 
+export type MySqlDiagnosticCategory =
+  | 'connected'
+  | 'not_configured'
+  | 'dns_not_found'
+  | 'connection_refused'
+  | 'timeout'
+  | 'auth_failed'
+  | 'unknown_database'
+  | 'tls_error'
+  | 'connection_failed';
+
 let cachedPool: Pool | null = null;
 let cachedSignature = '';
 let lastPingAt = 0;
 let lastPingResult = false;
+let lastLoggedErrorAt = 0;
+let lastDiagnostic: MySqlDiagnosticCategory = 'not_configured';
+let tlsFallbackMode: 'none' | 'strict_ca' | 'encrypted_unverified' = 'none';
 let adminBootstrapAttempted = false;
 let schemaSyncPromise: Promise<void> | null = null;
 
@@ -17,15 +33,104 @@ export interface MySqlConnectionConfig {
   password: string;
   database: string;
   ssl: boolean;
+  sslCa?: string;
+  sslRejectUnauthorized: boolean;
+  sslRejectUnauthorizedExplicit: boolean;
+}
+
+function stripSurroundingQuotes(raw: string | undefined): string {
+  const trimmed = (raw || '').trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function discoverCaCertificate(explicitCaPath?: string): string | undefined {
+  const inlineCa = process.env.MYSQL_SSL_CA?.trim();
+  if (inlineCa && inlineCa.includes('BEGIN CERTIFICATE')) {
+    return inlineCa.replace(/\\n/g, '\n');
+  }
+
+  const candidatePaths: string[] = [];
+  const envCaPath = stripSurroundingQuotes(
+    process.env.MYSQL_SSL_CA_PATH || explicitCaPath || process.env.NODE_EXTRA_CA_CERTS
+  );
+  if (envCaPath) {
+    candidatePaths.push(path.isAbsolute(envCaPath) ? envCaPath : path.resolve(process.cwd(), envCaPath));
+  }
+
+  // Auto-detect Sevalla/cloud CA certificates placed in the app working directory (e.g. medex-8ej78-ca.crt)
+  try {
+    const entries = fs.readdirSync(process.cwd());
+    for (const entry of entries) {
+      if (entry === 'ca.crt' || entry === 'ca.pem' || /-ca\.crt$/i.test(entry) || /-ca\.pem$/i.test(entry)) {
+        candidatePaths.push(path.resolve(process.cwd(), entry));
+      }
+    }
+  } catch {
+    // ignore filesystem read errors
+  }
+
+  for (const filePath of candidatePaths) {
+    try {
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const content = fs.readFileSync(filePath, 'utf8').trim();
+        if (content.includes('BEGIN CERTIFICATE')) {
+          return content;
+        }
+      }
+    } catch {
+      // ignore unreadable candidate
+    }
+  }
+  return undefined;
 }
 
 export function resolveMySqlConfig(): MySqlConnectionConfig | null {
-  const host = (process.env.MYSQL_HOST || '').trim();
-  const user = (process.env.MYSQL_USER || '').trim();
-  const database = (process.env.MYSQL_DATABASE || '').trim();
-  const password = process.env.MYSQL_PASSWORD ?? '';
-  const port = Number(process.env.MYSQL_PORT || 3306) || 3306;
-  const ssl = String(process.env.MYSQL_SSL || '').toLowerCase() === 'true';
+  const rawUrl = stripSurroundingQuotes(process.env.MYSQL_URL || process.env.DATABASE_URL);
+  let urlHost = '';
+  let urlPort = 3306;
+  let urlUser = '';
+  let urlPassword = '';
+  let urlDatabase = '';
+  let urlSsl = false;
+  let urlSslCaPath = '';
+
+  if (rawUrl && /^mysql2?:\/\//i.test(rawUrl)) {
+    try {
+      const parsed = new URL(rawUrl);
+      urlHost = parsed.hostname;
+      urlPort = Number(parsed.port || 3306) || 3306;
+      urlUser = decodeURIComponent(parsed.username || '');
+      urlPassword = decodeURIComponent(parsed.password || '');
+      urlDatabase = decodeURIComponent((parsed.pathname || '').replace(/^\/+/, ''));
+      const sslMode = (
+        parsed.searchParams.get('ssl-mode') ||
+        parsed.searchParams.get('sslmode') ||
+        parsed.searchParams.get('ssl') ||
+        ''
+      ).toLowerCase();
+      urlSslCaPath = parsed.searchParams.get('sslca') || parsed.searchParams.get('sslrootcert') || '';
+      urlSsl =
+        Boolean(urlSslCaPath) ||
+        (sslMode !== '' && sslMode !== 'false' && sslMode !== '0' && sslMode !== 'disabled');
+    } catch {
+      // fall through to discrete env vars
+    }
+  }
+
+  const host = stripSurroundingQuotes(process.env.MYSQL_HOST) || urlHost;
+  const user = stripSurroundingQuotes(process.env.MYSQL_USER) || urlUser;
+  const database = stripSurroundingQuotes(process.env.MYSQL_DATABASE) || urlDatabase;
+  const password =
+    process.env.MYSQL_PASSWORD !== undefined && process.env.MYSQL_PASSWORD !== ''
+      ? process.env.MYSQL_PASSWORD
+      : urlPassword;
+  const port = Number(stripSurroundingQuotes(process.env.MYSQL_PORT) || urlPort || 3306) || 3306;
 
   if (!host || !user || !database) return null;
   if (
@@ -36,17 +141,89 @@ export function resolveMySqlConfig(): MySqlConnectionConfig | null {
     return null;
   }
 
-  return { host, port, user, password, database, ssl };
+  const sslCa = discoverCaCertificate(urlSslCaPath);
+  const rawSsl = stripSurroundingQuotes(process.env.MYSQL_SSL).toLowerCase();
+  const sslExplicitlyFalse = rawSsl === 'false' || rawSsl === '0' || rawSsl === 'disabled';
+  const sslExplicitlyTrue =
+    rawSsl === 'true' || rawSsl === '1' || rawSsl === 'require' || rawSsl === 'required' || rawSsl === 'preferred';
+  const ssl = sslExplicitlyTrue || (!sslExplicitlyFalse && (urlSsl || Boolean(sslCa)));
+
+  const rawReject = stripSurroundingQuotes(process.env.MYSQL_SSL_REJECT_UNAUTHORIZED).toLowerCase();
+  const sslRejectUnauthorizedExplicit = rawReject === 'true' || rawReject === 'false';
+  const sslRejectUnauthorized = rawReject !== 'false';
+
+  return {
+    host,
+    port,
+    user,
+    password,
+    database,
+    ssl,
+    sslCa,
+    sslRejectUnauthorized,
+    sslRejectUnauthorizedExplicit,
+  };
+}
+
+export function classifyMySqlError(err: unknown): MySqlDiagnosticCategory {
+  const rec = (err && typeof err === 'object' ? err : {}) as { code?: string; message?: string };
+  const code = String(rec.code || '').toUpperCase();
+  const msg = String(rec.message || '').toLowerCase();
+
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'dns_not_found';
+  if (code === 'ECONNREFUSED') return 'connection_refused';
+  if (code === 'ETIMEDOUT' || code === 'PROTOCOL_CONNECTION_LOST' || msg.includes('timed out')) {
+    return 'timeout';
+  }
+  if (code === 'ER_ACCESS_DENIED_ERROR' || code === 'ER_DBACCESS_DENIED_ERROR') return 'auth_failed';
+  if (code === 'ER_BAD_DB_ERROR') return 'unknown_database';
+  if (
+    code === 'ER_SECURE_TRANSPORT_REQUIRED' ||
+    code === 'HANDSHAKE_NO_SSL_SUPPORT' ||
+    code === 'SELF_SIGNED_CERT_IN_CHAIN' ||
+    code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+    code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+    code === 'ERR_TLS_CERT_ALTNAME_INVALID' ||
+    code === 'CERT_HAS_EXPIRED' ||
+    msg.includes('self-signed') ||
+    msg.includes('insecure transport') ||
+    msg.includes('ssl') ||
+    msg.includes('tls')
+  ) {
+    return 'tls_error';
+  }
+  return 'connection_failed';
+}
+
+export function getMySqlDiagnosticStatus(): MySqlDiagnosticCategory {
+  if (!isMySqlConfigured()) return 'not_configured';
+  return lastPingResult ? 'connected' : lastDiagnostic;
 }
 
 export function isMySqlConfigured(): boolean {
   return resolveMySqlConfig() !== null;
 }
 
+function buildSslOptionForPool(
+  cfg: MySqlConnectionConfig,
+  overrideMode: 'none' | 'strict_ca' | 'encrypted_unverified'
+): Record<string, unknown> | undefined {
+  if (overrideMode === 'encrypted_unverified') {
+    return cfg.sslCa ? { ca: cfg.sslCa, rejectUnauthorized: false } : { rejectUnauthorized: false };
+  }
+  if (overrideMode === 'strict_ca') {
+    return cfg.sslCa ? { ca: cfg.sslCa, rejectUnauthorized: true } : { rejectUnauthorized: true };
+  }
+  if (!cfg.ssl) return undefined;
+  return cfg.sslCa
+    ? { ca: cfg.sslCa, rejectUnauthorized: cfg.sslRejectUnauthorized }
+    : { rejectUnauthorized: cfg.sslRejectUnauthorized };
+}
+
 export function getMySqlPool(): Pool | null {
   const cfg = resolveMySqlConfig();
   if (!cfg) return null;
-  const sig = `${cfg.host}:${cfg.port}/${cfg.database}@${cfg.user}:${cfg.ssl}`;
+  const sig = `${cfg.host}:${cfg.port}/${cfg.database}@${cfg.user}:${cfg.ssl}:${cfg.sslRejectUnauthorized}:${Boolean(cfg.sslCa)}:${tlsFallbackMode}`;
   if (!cachedPool || cachedSignature !== sig) {
     if (cachedPool) {
       void cachedPool.end().catch(() => {});
@@ -60,10 +237,10 @@ export function getMySqlPool(): Pool | null {
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
-      connectTimeout: 4000,
+      connectTimeout: 10000,
       dateStrings: true,
       decimalNumbers: true,
-      ssl: cfg.ssl ? { rejectUnauthorized: true } : undefined,
+      ssl: buildSslOptionForPool(cfg, tlsFallbackMode),
     });
     cachedSignature = sig;
     lastPingAt = 0;
@@ -260,8 +437,12 @@ async function ensureMySqlSchemaUpToDate(pool: Pool): Promise<void> {
 }
 
 export async function checkMySqlConnection(force = false): Promise<boolean> {
-  const pool = getMySqlPool();
-  if (!pool) return false;
+  const cfg = resolveMySqlConfig();
+  let pool = getMySqlPool();
+  if (!cfg || !pool) {
+    lastDiagnostic = 'not_configured';
+    return false;
+  }
   const now = Date.now();
   if (!force && lastPingAt > 0 && now - lastPingAt < 5000) {
     return lastPingResult;
@@ -270,6 +451,7 @@ export async function checkMySqlConnection(force = false): Promise<boolean> {
     await pool.query('SELECT 1 AS ok');
     lastPingAt = now;
     lastPingResult = true;
+    lastDiagnostic = 'connected';
     if (!schemaSyncPromise) {
       schemaSyncPromise = ensureMySqlSchemaUpToDate(pool);
     }
@@ -279,7 +461,69 @@ export async function checkMySqlConnection(force = false): Promise<boolean> {
       void bootstrapAdminPasswordFromEnv().catch(() => {});
     }
     return true;
-  } catch {
+  } catch (err) {
+    const category = classifyMySqlError(err);
+    const errRec = (err && typeof err === 'object' ? err : {}) as { code?: string; message?: string };
+
+    // Auto-negotiate TLS on managed cloud databases (e.g. Sevalla MySQL 8.0 with private CA)
+    // unless the operator explicitly forced MYSQL_SSL_REJECT_UNAUTHORIZED=true.
+    if (category === 'tls_error' && !cfg.sslRejectUnauthorizedExplicit) {
+      const nextMode: 'strict_ca' | 'encrypted_unverified' | null =
+        tlsFallbackMode === 'none' && !cfg.ssl && cfg.sslCa
+          ? 'strict_ca'
+          : tlsFallbackMode !== 'encrypted_unverified'
+            ? 'encrypted_unverified'
+            : null;
+      if (nextMode) {
+        console.warn(
+          `[MedEx MySQL] TLS handshake failed (${errRec.code || 'TLS_ERROR'}); retrying with ${
+            nextMode === 'strict_ca' ? 'detected CA certificate' : 'encrypted TLS for managed private CA'
+          }.`
+        );
+        tlsFallbackMode = nextMode;
+        pool = getMySqlPool();
+        if (pool) {
+          try {
+            await pool.query('SELECT 1 AS ok');
+            lastPingAt = Date.now();
+            lastPingResult = true;
+            lastDiagnostic = 'connected';
+            if (!schemaSyncPromise) {
+              schemaSyncPromise = ensureMySqlSchemaUpToDate(pool);
+            }
+            await schemaSyncPromise;
+            if (!adminBootstrapAttempted) {
+              adminBootstrapAttempted = true;
+              void bootstrapAdminPasswordFromEnv().catch(() => {});
+            }
+            return true;
+          } catch (retryErr) {
+            const retryRec = (retryErr && typeof retryErr === 'object' ? retryErr : {}) as {
+              code?: string;
+              message?: string;
+            };
+            lastDiagnostic = classifyMySqlError(retryErr);
+            if (now - lastLoggedErrorAt > 30000) {
+              lastLoggedErrorAt = now;
+              console.error(
+                `[MedEx MySQL] Connection failed after TLS retry (${retryRec.code || lastDiagnostic}): ${retryRec.message || 'Unknown error'}`
+              );
+            }
+            lastPingAt = now;
+            lastPingResult = false;
+            return false;
+          }
+        }
+      }
+    }
+
+    lastDiagnostic = category;
+    if (now - lastLoggedErrorAt > 30000) {
+      lastLoggedErrorAt = now;
+      console.error(
+        `[MedEx MySQL] Connection failed (${errRec.code || category}) to ${cfg.host}:${cfg.port}/${cfg.database}: ${errRec.message || 'Unknown error'}`
+      );
+    }
     lastPingAt = now;
     lastPingResult = false;
     return false;
