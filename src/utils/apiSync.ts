@@ -75,6 +75,8 @@ export const PRODUCT_IMAGE_FALLBACKS: ProductImageFallbacks = {
 // Session Bearer token held strictly in JavaScript memory (never localStorage/sessionStorage)
 let inMemoryAuthToken: string | null = null;
 let mySqlBackendActive = false;
+let mySqlConfiguredOnServer = false;
+let mySqlDiagnostic: string = 'not_configured';
 
 export function getAuthToken(): string | null {
   return inMemoryAuthToken;
@@ -120,6 +122,14 @@ export function setMySqlBackendActive(active: boolean): void {
   mySqlBackendActive = active;
 }
 
+export function isMySqlConfiguredOnServer(): boolean {
+  return mySqlConfiguredOnServer;
+}
+
+export function getMySqlDiagnostic(): string {
+  return mySqlDiagnostic;
+}
+
 function buildHeaders(includeJson = true): Record<string, string> {
   const headers: Record<string, string> = {};
   if (includeJson) headers['Content-Type'] = 'application/json';
@@ -160,21 +170,30 @@ async function apiRequest<T = Record<string, unknown>>(
 export interface MySqlBootstrapStatus {
   mysqlConfigured: boolean;
   mysqlConnected: boolean;
+  mysqlDiagnostic?: string;
   adminNeedsPasswordSetup: boolean;
 }
 
 export async function fetchMySqlBootstrapStatus(): Promise<MySqlBootstrapStatus> {
   const res = await apiRequest<MySqlBootstrapStatus>('/api/auth/bootstrap-status');
   if (res.ok && res.data) {
+    mySqlConfiguredOnServer = Boolean(res.data.mysqlConfigured);
+    mySqlDiagnostic = res.data.mysqlDiagnostic || (res.data.mysqlConnected ? 'connected' : 'connection_failed');
     setMySqlBackendActive(Boolean(res.data.mysqlConnected));
     return {
       mysqlConfigured: Boolean(res.data.mysqlConfigured),
       mysqlConnected: Boolean(res.data.mysqlConnected),
+      mysqlDiagnostic: mySqlDiagnostic,
       adminNeedsPasswordSetup: Boolean(res.data.adminNeedsPasswordSetup),
     };
   }
   setMySqlBackendActive(false);
-  return { mysqlConfigured: false, mysqlConnected: false, adminNeedsPasswordSetup: false };
+  return {
+    mysqlConfigured: mySqlConfiguredOnServer,
+    mysqlConnected: false,
+    mysqlDiagnostic: 'connection_failed',
+    adminNeedsPasswordSetup: false,
+  };
 }
 
 export interface MySqlRegistrationMetadata {
