@@ -1,0 +1,6 @@
+{
+  "name": "MedEx",
+  "description": "MedEx Online Pharmacy Locator, Medicine Ordering, Emergency Relief Pricing, and Delivery PWA",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

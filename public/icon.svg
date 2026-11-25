@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#0F172A" />
+  <!-- Motion speed trails on the left -->
+  <rect x="76" y="214" width="84" height="22" rx="11" fill="#14B8A6" />
+  <rect x="98" y="268" width="66" height="22" rx="11" fill="#0D9488" />
+  <!-- Crossed capsule pill 1 (top-left to bottom-right) -->
+  <g transform="translate(284 256) rotate(45)">
+    <rect x="-140" y="-34" width="280" height="68" rx="34" fill="#FFFFFF" />
+    <path d="M0 -34 H106 A34 34 0 0 1 140 0 A34 34 0 0 1 106 34 H0 Z" fill="#14B8A6" />
+  </g>
+  <!-- Crossed capsule pill 2 (bottom-left to top-right) -->
+  <g transform="translate(284 256) rotate(-45)">
+    <rect x="-140" y="-34" width="280" height="68" rx="34" fill="#0D9488" stroke="#0F172A" stroke-width="10" />
+    <path d="M0 -34 H106 A34 34 0 0 1 140 0 A34 34 0 0 1 106 34 H0 Z" fill="#FFFFFF" />
+  </g>
+</svg>

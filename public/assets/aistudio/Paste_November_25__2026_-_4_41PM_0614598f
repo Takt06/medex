@@ -1,0 +1,1241 @@
+You are a senior system architect and full-stack developer. I want you to **restructure the role/module architecture of my existing system**.
+
+Do not rebuild the entire system from scratch. First, inspect my existing project and understand how the current modules, database, authentication, authorization, APIs, dashboards, and relationships work. Then modify the architecture according to the requirements below while preserving existing functionality that should remain.
+
+# 1. CURRENT SYSTEM MODULES
+
+My current system contains these major modules:
+
+- User / Address
+- Pharmacy Locator
+- Store / Merchant
+- Order
+- Payment
+- Rider / Delivery
+- Feedback
+- Return / Refund
+- Emergency Trigger
+- Admin
+
+I want to reorganize these into a cleaner **role-based account + subsystem architecture**.
+
+The new major roles/modules should be:
+
+- Admin
+- Customer
+- Rider
+- Store / Merchant
+- Delivery Management
+- Coupon Handler
+- Customer Service
+- Inventory Management
+
+However, there is an important distinction:
+
+**Not every module above is a normal customer-facing account.**
+
+There are only **three externally sign-up-able account types**:
+
+1. Customer
+2. Store / Merchant
+3. Rider
+
+The other roles are **internal/admin-style accounts** that are created by the Admin, similar to how an Admin account is created.
+
+---
+
+# 2. IMPORTANT ACCOUNT STRUCTURE
+
+Implement a proper **Role-Based Access Control (RBAC)** system.
+
+There should be different account roles:
+
+### Customer
+Customers can:
+
+- Sign up
+- Sign in
+- Manage their profile
+- Manage their addresses
+- Browse products/stores
+- Place orders
+- Make payments
+- Use eligible coupons
+- Track deliveries
+- Submit feedback
+- Submit complaints/reports
+- Request returns/refunds where applicable
+- Use the Emergency Trigger feature
+
+### Store / Merchant
+Stores/Merchants can:
+
+- Sign up
+- Sign in
+- Create/manage their store
+- Manage their products
+- Manage product information
+- Manage product availability
+- Process customer orders
+- Handle products they sell
+- Respond to customer complaints regarding their products
+- Handle return/refund requests related to their products
+- View relevant store/order/product analytics
+
+The Admin must be able to:
+
+- Review merchant registration
+- Verify merchants
+- Approve merchants
+- Reject merchants
+- Suspend merchants where appropriate
+
+### Rider
+Riders can:
+
+- Sign up
+- Sign in
+- Manage their rider profile
+- Receive assigned deliveries
+- Update delivery status
+- View delivery assignments
+- Update delivery progress
+- Complete deliveries
+- View relevant delivery information
+
+However, **Rider is no longer the main delivery-management subsystem**.
+
+The Rider is now an account/user role controlled by the:
+
+**Delivery Management**
+
+---
+
+# 3. ADMIN ROLE
+
+### IMPORTANT:
+
+**DO NOT CHANGE THE EXISTING ADMIN ROLE OR ITS CURRENT FUNCTIONALITY.**
+
+The Admin remains the highest-level administrative account.
+
+Do not downgrade, rename, remove, or replace the Admin.
+
+The Admin should continue to have the overall system management capability.
+
+The Admin should also be able to create and manage the internal administrative accounts:
+
+- Delivery Management
+- Coupon Handler
+- Customer Service
+- Inventory Management
+
+These internal roles should NOT have unrestricted access to the entire system.
+
+Their permissions must be limited to their respective responsibilities.
+
+---
+
+# 4. DELIVERY MANAGEMENT
+
+Create a new internal administrative role:
+
+### Role:
+**Delivery Management**
+
+This role acts as an **administrator specifically for delivery operations**.
+
+It is NOT the same as the global Admin.
+
+It should have its own account and login.
+
+The Admin creates the Delivery Management account.
+
+Delivery Management should be responsible for the entire delivery subsystem.
+
+### Responsibilities:
+
+- Manage deliveries
+- Monitor all delivery orders
+- Assign riders to deliveries
+- View rider accounts
+- Manage rider assignments
+- Monitor rider activity
+- View delivery status
+- Update/manage delivery-related information
+- Monitor pending deliveries
+- Monitor completed deliveries
+- Monitor failed/cancelled deliveries
+- Monitor delayed deliveries
+- Manage delivery schedules where applicable
+- View delivery analytics
+- View delivery performance
+- View delivery history
+- View products/orders being shipped
+- Track which rider is handling which delivery
+- Manage rider availability/status
+- Suspend or deactivate rider accounts when appropriate
+- Reactivate riders when appropriate
+- Review rider-related information
+
+### Rider relationship:
+
+The **Rider becomes a subsystem/account under Delivery Management**.
+
+Conceptually:
+
+**Admin**
+→ **Delivery Management**
+→ **Rider Accounts**
+→ **Deliveries**
+
+The Delivery Management role should have administrative control over rider-related operations, but it should NOT gain unrelated permissions such as:
+
+- Coupon management
+- Inventory administration
+- Customer Service administration
+- Global system administration
+
+unless explicitly granted by the Admin.
+
+### Delivery Analytics
+
+Create a delivery analytics/dashboard area that can show information such as:
+
+- Total deliveries
+- Pending deliveries
+- In-transit deliveries
+- Completed deliveries
+- Cancelled deliveries
+- Failed deliveries
+- Delayed deliveries
+- Delivery completion rate
+- Rider performance
+- Delivery volume over time
+- Average delivery time
+- Rider workload
+- Delivery status distribution
+- Products/orders currently being delivered
+
+Only expose data that the Delivery Management role is authorized to access.
+
+---
+
+# 5. COUPON HANDLER
+
+Create a new internal administrative role:
+
+### Role:
+**Coupon Handler**
+
+This is an admin-style account responsible ONLY for:
+
+- Coupons
+- Discounts
+- Promo codes
+- Promotional campaigns
+- Coupon requirements
+- Coupon eligibility
+- Coupon analytics
+
+The Admin creates the Coupon Handler account.
+
+The Coupon Handler should have its own login and dashboard.
+
+### Coupon Handler capabilities:
+
+They should be able to:
+
+- Create coupons
+- Edit coupons
+- Activate coupons
+- Deactivate coupons
+- Set expiration dates
+- Set usage limits
+- Set minimum purchase requirements
+- Set maximum discount limits
+- Define percentage discounts
+- Define fixed discounts
+- Define eligibility requirements
+- Define applicable products
+- Define applicable stores
+- Define customer eligibility where applicable
+- Create promo codes
+- Manage promotional campaigns
+- Monitor coupon usage
+- View coupon transactions
+- View coupon redemption history
+- Analyze successful/failed coupon usage
+- Track total discounts given
+- Track most-used coupons
+- Track expired coupons
+- Track active coupons
+
+### Customer interaction
+
+Customers should be able to:
+
+- See eligible coupons
+- Claim coupons
+- View claimed coupons
+- Check coupon requirements
+- Apply eligible coupons during checkout
+- Receive the corresponding discount when requirements are satisfied
+
+The system must validate coupon eligibility **server-side**, not only in the frontend.
+
+Customers must not be able to modify coupon values or bypass coupon requirements through frontend manipulation.
+
+### Coupon analytics
+
+The Coupon Handler should have analytics such as:
+
+- Total coupons
+- Active coupons
+- Expired coupons
+- Claimed coupons
+- Redeemed coupons
+- Unused coupons
+- Total discount value
+- Coupon usage by product
+- Coupon usage by store
+- Coupon usage over time
+- Most popular coupons
+- Failed/invalid coupon attempts
+
+---
+
+# 6. INVENTORY MANAGEMENT
+
+Create another internal administrative role:
+
+### Role:
+**Inventory Management**
+
+This role acts as an administrator for the **inventory subsystem**.
+
+The Admin creates the Inventory Management account.
+
+Its primary subsystem is the collection of **Stores/Merchants and their inventory**.
+
+### Inventory Management should be able to:
+
+- View stores
+- View merchant accounts
+- View products
+- View product quantities
+- Monitor stock levels
+- Monitor low-stock products
+- Monitor out-of-stock products
+- Monitor high-stock products
+- Track inventory changes
+- View inventory history
+- View product availability
+- View stock movement
+- View inventory analytics
+- Monitor overall inventory across stores
+- Identify products requiring restocking
+- Identify products with unusually high/low inventory
+
+The Inventory Management role should NOT automatically gain permission to:
+
+- Manage coupons
+- Manage customer complaints
+- Manage riders
+- Manage global system settings
+- Manage payments
+- Manage Admin accounts
+
+unless explicitly authorized.
+
+### Inventory relationship
+
+Conceptually:
+
+**Admin**
+→ **Inventory Management**
+→ **Stores/Merchants**
+→ **Products**
+→ **Inventory**
+
+The Store/Merchant remains responsible for their own store and products.
+
+Inventory Management provides centralized monitoring and administrative oversight.
+
+---
+
+# 7. CUSTOMER SERVICE
+
+Create another internal administrative role:
+
+### Role:
+**Customer Service**
+
+This is also an admin-style account.
+
+The Admin creates the Customer Service account.
+
+Customer Service is responsible for **customer feedback, complaints, reports, and support issues** across the system.
+
+It should act as a centralized support/monitoring role.
+
+### Customer Service can:
+
+- View customer feedback
+- View customer reports
+- View customer complaints
+- Monitor unresolved complaints
+- Monitor resolved complaints
+- View complaints related to stores
+- View complaints related to orders
+- View complaints related to deliveries
+- View relevant customer information
+- Track complaint status
+- Categorize complaints
+- Add internal notes
+- Respond to customers where appropriate
+- Escalate issues
+- Monitor response times
+- View support analytics
+- Track recurring problems
+
+### Important Store relationship
+
+The Store/Merchant should still be responsible for responding to complaints related specifically to their products/store.
+
+Customer Service does NOT replace the Store's responsibility.
+
+Instead:
+
+**Customer → Complaint → Store**
+
+If the Store does not respond or the customer believes the issue has not been properly handled:
+
+**Customer → Customer Service**
+
+Customer Service can then review the issue, monitor the Store's response, and intervene/escalate according to the system's rules.
+
+Customer Service should be able to see the overall complaint/feedback history, but permissions should be controlled appropriately.
+
+### Customer Service analytics
+
+Include information such as:
+
+- Total complaints
+- Open complaints
+- Pending complaints
+- Resolved complaints
+- Escalated complaints
+- Complaints by store
+- Complaints by category
+- Complaints by product
+- Complaints by delivery
+- Average response time
+- Average resolution time
+- Customer satisfaction/feedback metrics where applicable
+- Recurring complaint categories
+
+---
+
+# 8. STORE / MERCHANT
+
+The Store/Merchant remains a major account type.
+
+Do NOT convert Store/Merchant into an internal admin account.
+
+Store/Merchant remains an externally registered account.
+
+### Registration flow:
+
+Store/Merchant:
+
+**Sign Up → Submit Merchant Information → Admin Review → Admin Approves/Rejects → Merchant Can Operate**
+
+The Admin must retain control over merchant verification and approval.
+
+### Store/Merchant responsibilities:
+
+- Manage store
+- Manage products
+- Manage product information
+- Manage product inventory relevant to their store
+- Process orders
+- Respond to customers
+- Handle product-related complaints
+- Handle return requests
+- Handle refund requests
+- View store analytics
+- Manage their own store information
+
+### Return/Refund
+
+Move the existing **Return/Refund functionality under the Store/Merchant responsibility** because the merchant is responsible for the products they sell.
+
+However, preserve appropriate visibility for:
+
+- Customer
+- Store/Merchant
+- Customer Service
+- Admin
+
+The Customer can request a return/refund.
+
+The Store/Merchant handles the product-related request.
+
+Customer Service can monitor/escalate disputes.
+
+Admin retains overall oversight.
+
+---
+
+# 9. CUSTOMER + USER/ADDRESS
+
+The existing **User/Address** concept should become part of the **Customer** role.
+
+Do not create a separate "User/Address admin module."
+
+Instead:
+
+### Customer Account
+includes:
+
+- User profile
+- Address management
+- Order history
+- Payment-related information
+- Coupons
+- Feedback
+- Complaints
+- Returns/refunds
+- Delivery tracking
+- Emergency Trigger
+
+The Customer is the person purchasing products.
+
+---
+
+# 10. EMERGENCY TRIGGER
+
+The existing Emergency Trigger should NOT remain as a separate major administrative module.
+
+Merge it into the **Customer** experience as a feature.
+
+Conceptually:
+
+**Customer**
+→ **Emergency Trigger**
+
+The Emergency Trigger should remain available to the customer as an integrated feature.
+
+Do not create a separate account or administrative role for Emergency Trigger.
+
+If the existing Emergency Trigger has administrative monitoring or response functionality, preserve the necessary backend functionality while making it a **feature of the Customer subsystem**, rather than treating it as an independent user role.
+
+---
+
+# 11. EXISTING MODULE RESTRUCTURING
+
+Map the old architecture to the new architecture.
+
+Use this conceptual mapping:
+
+| Existing Module | New Structure |
+|---|---|
+| Admin | Admin |
+| User / Address | Customer |
+| Emergency Trigger | Customer Feature |
+| Rider / Delivery | Delivery Management + Rider |
+| Store / Merchant | Store / Merchant |
+| Return / Refund | Store / Merchant responsibility + Customer request + Customer Service oversight |
+| Feedback | Customer Service |
+| Pharmacy Locator | Preserve existing functionality and place it under the appropriate customer/store experience |
+| Order | Shared subsystem with role-based access |
+| Payment | Shared subsystem with role-based access |
+
+Do NOT delete functionality simply because the module name has changed.
+
+Instead, reorganize ownership and permissions.
+
+---
+
+# 12. VERY IMPORTANT: SHARED SUBSYSTEMS
+
+Some features should NOT belong exclusively to one role.
+
+For example:
+
+### Orders
+
+Customer:
+- Create order
+- View own orders
+- Track order
+
+Store:
+- View relevant orders
+- Process orders
+
+Delivery Management:
+- Manage delivery of relevant orders
+- Assign riders
+- Track delivery
+
+Admin:
+- Overall oversight
+
+### Payments
+
+Customer:
+- Make/view payments relevant to their orders
+
+Store:
+- View relevant payment/order information
+
+Admin:
+- Overall system oversight
+
+Do not expose sensitive payment information unnecessarily.
+
+### Products
+
+Customer:
+- Browse products
+
+Store:
+- Create/manage own products
+
+Inventory Management:
+- Monitor inventory across stores
+
+Admin:
+- Overall oversight
+
+### Feedback
+
+Customer:
+- Submit feedback
+
+Store:
+- Respond to relevant store/product feedback
+
+Customer Service:
+- Monitor all customer feedback and complaints
+
+Admin:
+- Overall oversight
+
+---
+
+# 13. AUTHENTICATION ARCHITECTURE
+
+Implement role-aware authentication.
+
+There should be one secure authentication architecture that determines the user's role after authentication.
+
+External registration should only be available for:
+
+- Customer
+- Store/Merchant
+- Rider
+
+Internal roles:
+
+- Admin
+- Delivery Management
+- Coupon Handler
+- Customer Service
+- Inventory Management
+
+must be created by authorized administrators rather than through public registration.
+
+### Important
+
+Do NOT create unnecessary separate authentication systems for every role.
+
+Use a unified authentication system with proper role/permission management.
+
+For example, conceptually:
+
+```text
+Account
+ ├── Customer
+ ├── Store/Merchant
+ ├── Rider
+ ├── Admin
+ ├── Delivery Management
+ ├── Coupon Handler
+ ├── Customer Service
+ └── Inventory Management
+```
+
+Each account has an appropriate role and permissions.
+
+---
+
+# 14. ROLE-BASED DASHBOARDS
+
+Each role should see a dashboard appropriate to its responsibilities.
+
+### Admin Dashboard
+
+Keep the existing Admin dashboard and functionality intact.
+
+### Customer Dashboard
+
+Show:
+
+- Profile
+- Addresses
+- Orders
+- Payments
+- Coupons
+- Delivery tracking
+- Feedback
+- Complaints
+- Returns/refunds
+- Emergency Trigger
+
+### Store/Merchant Dashboard
+
+Show:
+
+- Store
+- Products
+- Orders
+- Inventory relevant to their store
+- Customer feedback
+- Complaints
+- Returns/refunds
+- Store analytics
+
+### Rider Dashboard
+
+Show:
+
+- Delivery assignments
+- Current deliveries
+- Delivery history
+- Delivery status
+- Relevant rider information
+
+### Delivery Management Dashboard
+
+Show:
+
+- All deliveries
+- Rider management
+- Rider assignments
+- Delivery analytics
+- Delivery performance
+- Delivery status
+- Products/orders being delivered
+- Rider availability
+- Delayed deliveries
+- Failed deliveries
+
+### Coupon Handler Dashboard
+
+Show:
+
+- Coupons
+- Promo codes
+- Discounts
+- Campaigns
+- Coupon requirements
+- Redemption history
+- Coupon analytics
+
+### Customer Service Dashboard
+
+Show:
+
+- Feedback
+- Complaints
+- Reports
+- Escalations
+- Customer support cases
+- Store response status
+- Support analytics
+
+### Inventory Management Dashboard
+
+Show:
+
+- Stores
+- Products
+- Stock levels
+- Low-stock products
+- Out-of-stock products
+- High-stock products
+- Inventory movement
+- Inventory analytics
+
+---
+
+# 15. PERMISSION SECURITY
+
+This is extremely important.
+
+Do NOT rely only on hiding buttons or pages.
+
+Authorization must be enforced on the backend/API/server/database layer.
+
+For example:
+
+A Coupon Handler should NOT be able to call an endpoint that modifies riders.
+
+A Delivery Management account should NOT be able to modify coupons.
+
+An Inventory Management account should NOT be able to modify customer-service cases unless explicitly permitted.
+
+A Customer should NOT be able to access internal admin APIs.
+
+A Store should NOT be able to access another Store's private data.
+
+A Rider should NOT be able to access another Rider's private account or assignments unless explicitly authorized.
+
+A role should only receive the minimum permissions necessary for its responsibilities.
+
+---
+
+# 16. ROLE PERMISSION MATRIX
+
+Create a proper permission matrix.
+
+At minimum, analyze permissions for:
+
+- Create
+- Read
+- Update
+- Delete
+- Approve
+- Suspend
+- Activate
+- Assign
+- Manage
+- View Analytics
+- Escalate
+
+for each role.
+
+Do not simply use broad permissions like "admin = everything."
+
+Use appropriate granular permissions for the internal roles.
+
+---
+
+# 17. DATABASE ARCHITECTURE
+
+Inspect the existing database and modify it safely to support the new architecture.
+
+Avoid creating unnecessary duplicated account tables.
+
+Prefer a clean relationship such as:
+
+```text
+Account
+   ↓
+Role
+   ↓
+Permissions
+   ↓
+Subsystem Access
+```
+
+Then connect domain-specific entities such as:
+
+```text
+Customer → Orders → Products → Store
+Customer → Coupons
+Customer → Feedback
+Customer → Complaints
+Store → Products → Inventory
+Order → Delivery → Rider
+Coupon → Redemption → Order
+Customer → Return/Refund → Store
+Complaint → Customer Service
+```
+
+Adapt this structure to the existing database rather than blindly copying it.
+
+Preserve existing data where possible.
+
+If database migrations are required, create them safely.
+
+---
+
+# 18. IMPORTANT BUSINESS RULES
+
+Implement these rules clearly:
+
+### Account creation
+
+Public:
+
+- Customer → Can Sign Up
+- Store → Can Sign Up
+- Rider → Can Sign Up
+
+Internal:
+
+- Admin → Created/managed according to existing Admin system
+- Delivery Management → Created by Admin
+- Coupon Handler → Created by Admin
+- Customer Service → Created by Admin
+- Inventory Management → Created by Admin
+
+Internal roles must not have public sign-up forms.
+
+---
+
+### Rider management
+
+Rider signs up normally.
+
+Admin/authorized process verifies or manages the Rider as appropriate.
+
+Delivery Management can manage Rider operational status and delivery-related account state.
+
+Examples:
+
+- Active
+- Available
+- Assigned
+- On Delivery
+- Suspended
+- Inactive
+
+Be careful not to let Delivery Management bypass higher-level account/security controls that should remain with the Admin.
+
+---
+
+### Merchant management
+
+Merchant signs up.
+
+Admin reviews merchant.
+
+Admin approves/rejects merchant.
+
+Only approved merchants should receive the appropriate operating permissions.
+
+---
+
+### Coupon management
+
+Coupon Handler creates and manages coupons.
+
+Customer claims eligible coupons.
+
+System validates requirements.
+
+Customer applies coupon during checkout.
+
+Backend calculates/validates the discount.
+
+Order records the applied coupon and discount.
+
+Coupon analytics update based on actual transactions.
+
+---
+
+### Inventory management
+
+Stores manage their products and relevant stock.
+
+Inventory Management monitors all stores.
+
+Inventory analytics calculate:
+
+- Current stock
+- Low stock
+- Out of stock
+- High stock
+- Stock movement
+- Product availability
+
+Do not allow Inventory Management to unintentionally alter merchant-owned data unless the permission is explicitly required.
+
+---
+
+### Customer Service
+
+Customers can submit complaints.
+
+Stores can respond to complaints relevant to them.
+
+Customer Service can monitor the entire case.
+
+If the Store fails to respond or the customer escalates the case, Customer Service can manage the escalation process.
+
+---
+
+# 19. DO NOT BREAK EXISTING FUNCTIONALITY
+
+Before changing the architecture:
+
+1. Scan the existing code.
+2. Identify dependencies.
+3. Identify existing authentication logic.
+4. Identify database relationships.
+5. Identify API routes.
+6. Identify role checks.
+7. Identify dashboards.
+8. Identify existing workflows.
+
+Then modify the system incrementally.
+
+Do not remove existing functionality unless it conflicts with the new architecture.
+
+If a module needs to be renamed/reorganized internally, preserve its underlying functionality.
+
+---
+
+# 20. IMPLEMENTATION PROCESS
+
+Follow this order:
+
+### Phase 1 — Analyze
+
+Scan the entire existing system.
+
+### Phase 2 — Architecture
+
+Create the proposed new role/subsystem architecture based on the requirements above.
+
+### Phase 3 — Database
+
+Determine required schema changes and migrations.
+
+### Phase 4 — Authentication/RBAC
+
+Implement the role and permission system.
+
+### Phase 5 — Dashboards
+
+Create/update dashboards according to each role.
+
+### Phase 6 — Business Logic
+
+Move functionality into the appropriate subsystem.
+
+### Phase 7 — Security
+
+Apply server-side authorization and data isolation.
+
+### Phase 8 — Testing
+
+Test every role and permission.
+
+### Phase 9 — Regression Check
+
+Ensure existing functionality still works.
+
+### Phase 10 — Final Audit
+
+Look for permission leaks, broken workflows, incorrect role assignments, and unauthorized access.
+
+---
+
+# 21. TEST THESE SCENARIOS
+
+After implementation, verify scenarios such as:
+
+### Customer
+
+Can a Customer access:
+
+- Admin dashboard? → NO
+- Delivery Management dashboard? → NO
+- Coupon Handler dashboard? → NO
+- Customer Service dashboard? → NO
+- Inventory Management dashboard? → NO
+- Another customer's private data? → NO
+- Their own orders? → YES
+- Their own addresses? → YES
+- Eligible coupons? → YES
+- Emergency Trigger? → YES
+
+### Store
+
+Can a Store:
+
+- Manage its own products? → YES
+- Manage another Store's products? → NO
+- Respond to relevant customer complaints? → YES
+- Manage returns/refunds related to its products? → YES
+- Manage coupons globally? → NO
+- Manage riders? → NO
+
+### Rider
+
+Can a Rider:
+
+- View their assigned deliveries? → YES
+- Modify another Rider's deliveries? → NO
+- Manage Rider accounts? → NO
+- Manage coupons? → NO
+- Manage inventory globally? → NO
+
+### Delivery Management
+
+Can Delivery Management:
+
+- Manage deliveries? → YES
+- Manage rider operational status? → YES
+- Suspend/deactivate riders according to its permitted scope? → YES
+- Manage coupons? → NO
+- Manage inventory? → NO
+- Manage customer-service cases? → NO
+- Modify global Admin settings? → NO
+
+### Coupon Handler
+
+Can Coupon Handler:
+
+- Create coupons? → YES
+- Modify coupons? → YES
+- View coupon analytics? → YES
+- Manage promo codes? → YES
+- Modify riders? → NO
+- Modify inventory? → NO
+- Manage stores? → NO
+
+### Inventory Management
+
+Can Inventory Management:
+
+- View stores? → YES
+- View products? → YES
+- View stock levels? → YES
+- View inventory analytics? → YES
+- Manage coupons? → NO
+- Manage riders? → NO
+- Manage customer complaints? → NO unless explicitly authorized
+
+### Customer Service
+
+Can Customer Service:
+
+- View customer complaints? → YES
+- View feedback? → YES
+- Monitor store responses? → YES
+- Handle escalations? → YES
+- Manage coupons? → NO
+- Manage inventory? → NO
+- Manage riders? → NO
+
+---
+
+# 22. IMPORTANT DESIGN PRINCIPLE
+
+Use this hierarchy as the conceptual foundation:
+
+```text
+                         ADMIN
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+Delivery Management   Coupon Handler   Inventory Management
+        │                  │                  │
+        ▼                  ▼                  ▼
+      Rider             Coupons          Stores/Products
+        │                                     │
+        └───────────────┐                     ▼
+                        │                 Inventory
+                        ▼
+                     Delivery
+
+
+                         ADMIN
+                           │
+                           ▼
+                  Customer Service
+                           │
+                           ▼
+                 Feedback / Complaints
+                           │
+                           ▼
+                    Customer Support
+
+
+External Accounts:
+────────────────────────────────────────────
+
+Customer
+   │
+   ├── Address
+   ├── Orders
+   ├── Payments
+   ├── Coupons
+   ├── Feedback
+   ├── Complaints
+   ├── Returns/Refunds
+   └── Emergency Trigger
+
+Store / Merchant
+   │
+   ├── Store
+   ├── Products
+   ├── Inventory
+   ├── Orders
+   ├── Feedback
+   └── Returns/Refunds
+
+Rider
+   │
+   └── Delivery
+       │
+       └── Managed by Delivery Management
+```
+
+This diagram is conceptual. Adapt the actual implementation to the existing system's architecture.
+
+---
+
+# 23. FINAL REQUIREMENT
+
+Do not simply tell me how I could implement this.
+
+**Actually inspect my project and implement the required changes.**
+
+Before modifying anything, explain your understanding of the current architecture and identify the files/components/database tables that will be affected.
+
+Then implement the changes.
+
+After implementation, provide:
+
+1. **Old architecture**
+2. **New architecture**
+3. **Role hierarchy**
+4. **Permission matrix**
+5. **Database changes**
+6. **Authentication changes**
+7. **Dashboard changes**
+8. **Business logic changes**
+9. **Files/components modified**
+10. **Security considerations**
+11. **Test results**
+12. **Any remaining problems**
+13. **Any assumptions you had to make**
+
+Most importantly:
+
+**Do not confuse "role" with "module."**
+
+A role represents **who the account is and what permissions it has**.
+
+A subsystem represents **what area of the application that role is responsible for**.
+
+The Admin remains the global administrator.
+
+Delivery Management, Coupon Handler, Customer Service, and Inventory Management are **limited administrative roles**, not global administrators.
+
+Customer, Store/Merchant, and Rider are the **only publicly registered account types**.
+
+Preserve the existing Admin functionality.
+
+Do not accidentally give internal administrative roles more access than they require.
+
+Implement this as a secure, maintainable, role-based architecture.

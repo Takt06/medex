@@ -1,0 +1,586 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+@import "leaflet/dist/leaflet.css";
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Public Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #f8fafc;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html.dark body {
+    background-color: #020617;
+    color: #f1f5f9;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    transition:
+      transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 160ms ease,
+      border-color 160ms ease,
+      box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      color 160ms ease;
+  }
+
+  button:not(:disabled):active {
+    transform: scale(0.97);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.medex-card-hover {
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.medex-card-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 26px 56px -18px rgba(8, 38, 56, 0.26),
+    0 8px 22px -6px rgba(13, 148, 136, 0.16),
+    inset 0 1.5px 1px rgba(255, 255, 255, 1),
+    inset 1px 0 1px rgba(255, 255, 255, 0.80),
+    inset 0 -1px 1px rgba(13, 148, 136, 0.18);
+}
+
+html.dark .medex-card-hover:hover {
+  border-color: rgba(255, 255, 255, 0.30);
+  box-shadow:
+    0 28px 64px -16px rgba(0, 0, 0, 0.84),
+    0 8px 24px -6px rgba(45, 212, 191, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.38),
+    inset 1px 0 1px rgba(204, 251, 241, 0.18),
+    inset 0 -1px 1px rgba(45, 212, 191, 0.16);
+}
+
+.medex-btn-lift {
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 160ms ease;
+}
+
+.medex-btn-lift:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px -6px rgba(13, 148, 136, 0.42);
+}
+
+.medex-btn-lift:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Ensure Leaflet map layers do not overlap modals or sticky nav */
+.leaflet-container {
+  font-family: var(--font-sans);
+  z-index: 1;
+}
+
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 10 !important;
+}
+
+html.dark .leaflet-tile-pane {
+  filter: invert(92%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
+html.dark .leaflet-control-zoom a,
+html.dark .leaflet-control-attribution {
+  background-color: #0f172a !important;
+  color: #cbd5e1 !important;
+  border-color: #334155 !important;
+}
+
+html.dark .leaflet-control-attribution a {
+  color: #2dd4bf !important;
+}
+
+@layer components {
+  .medex-ambient-canvas {
+    isolation: isolate;
+    background-color: #cce1ea;
+  }
+
+  .medex-ambient-canvas::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(
+        115% 85% at 18% 8%,
+        rgba(255, 255, 255, 0.18) 0%,
+        rgba(214, 238, 246, 0.06) 46%,
+        rgba(122, 166, 186, 0.14) 100%
+      ),
+      url('./assets/images/medex_bg_light_1795459800761.jpg');
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    transform: translateZ(0);
+  }
+
+  html.dark .medex-ambient-canvas {
+    background-color: #040d16;
+  }
+
+  html.dark .medex-ambient-canvas::before {
+    background-image:
+      radial-gradient(
+        110% 85% at 45% 22%,
+        rgba(45, 212, 191, 0.09) 0%,
+        rgba(4, 15, 26, 0.18) 58%,
+        rgba(2, 8, 16, 0.44) 100%
+      ),
+      url('./assets/images/medex_bg_dark_1795459800150.jpg');
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+  }
+
+  /* Apple iOS 26 / visionOS Liquid Glass Primary Surface (single-layer optical translucency) */
+  .medex-glass {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 80% at 8% 0%,
+        rgba(255, 255, 255, 0.68) 0%,
+        rgba(255, 255, 255, 0.14) 40%,
+        rgba(255, 255, 255, 0) 68%
+      ),
+      radial-gradient(
+        90% 70% at 96% 100%,
+        rgba(186, 230, 253, 0.10) 0%,
+        rgba(204, 251, 241, 0.06) 45%,
+        rgba(255, 255, 255, 0) 75%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.56) 0%,
+        rgba(255, 255, 255, 0.28) 48%,
+        rgba(242, 250, 252, 0.42) 100%
+      );
+    backdrop-filter: blur(22px) saturate(185%) contrast(1.02) brightness(1.05);
+    -webkit-backdrop-filter: blur(22px) saturate(185%) contrast(1.02) brightness(1.05);
+    border-color: rgba(255, 255, 255, 0.80);
+    box-shadow:
+      0 20px 44px -18px rgba(8, 38, 56, 0.22),
+      0 4px 14px -4px rgba(13, 148, 136, 0.10),
+      0 1px 2px rgba(15, 23, 42, 0.06),
+      inset 0 1.5px 1px rgba(255, 255, 255, 0.96),
+      inset 1px 0 1px rgba(255, 255, 255, 0.68),
+      inset 0 -1px 1px rgba(13, 148, 136, 0.12),
+      inset -1px 0 1px rgba(255, 255, 255, 0.36);
+  }
+
+  html.dark .medex-glass {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        125% 80% at 10% 0%,
+        rgba(255, 255, 255, 0.17) 0%,
+        rgba(45, 212, 191, 0.06) 36%,
+        rgba(255, 255, 255, 0) 66%
+      ),
+      radial-gradient(
+        85% 65% at 95% 100%,
+        rgba(45, 212, 191, 0.11) 0%,
+        rgba(14, 165, 233, 0.04) 48%,
+        rgba(0, 0, 0, 0) 75%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(20, 44, 68, 0.44) 0%,
+        rgba(10, 24, 42, 0.32) 50%,
+        rgba(6, 18, 34, 0.48) 100%
+      );
+    backdrop-filter: blur(24px) saturate(200%) brightness(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.08);
+    border-color: rgba(255, 255, 255, 0.18);
+    box-shadow:
+      0 24px 56px -16px rgba(0, 0, 0, 0.78),
+      0 6px 20px -6px rgba(0, 0, 0, 0.48),
+      inset 0 1px 1px rgba(255, 255, 255, 0.30),
+      inset 1px 0 1px rgba(204, 251, 241, 0.14),
+      inset 0 -1px 1px rgba(45, 212, 191, 0.12),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  }
+
+  /* Nested Frosted Glass Wells, Controls & Pills */
+  .medex-glass-subtle {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 85% at 12% 0%,
+        rgba(255, 255, 255, 0.56) 0%,
+        rgba(255, 255, 255, 0) 58%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(255, 255, 255, 0.52) 0%,
+        rgba(240, 250, 252, 0.28) 100%
+      );
+    backdrop-filter: blur(16px) saturate(200%) brightness(1.04);
+    -webkit-backdrop-filter: blur(16px) saturate(200%) brightness(1.04);
+    border-color: rgba(255, 255, 255, 0.72);
+    box-shadow:
+      0 8px 22px -12px rgba(8, 38, 56, 0.14),
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.92),
+      inset 1px 0 0.5px rgba(255, 255, 255, 0.52),
+      inset 0 -1px 0.5px rgba(13, 148, 136, 0.08);
+  }
+
+  html.dark .medex-glass-subtle {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 85% at 12% 0%,
+        rgba(255, 255, 255, 0.12) 0%,
+        rgba(255, 255, 255, 0) 58%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(22, 46, 70, 0.42) 0%,
+        rgba(10, 24, 42, 0.34) 100%
+      );
+    backdrop-filter: blur(16px) saturate(190%) brightness(1.05);
+    -webkit-backdrop-filter: blur(16px) saturate(190%) brightness(1.05);
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow:
+      0 10px 26px -12px rgba(0, 0, 0, 0.58),
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.22),
+      inset 0 -1px 0.5px rgba(45, 212, 191, 0.08);
+  }
+
+  /* Apple Translucent Navigation Bars, Category Strips & Footers */
+  .medex-glass-header {
+    background-color: transparent;
+    background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.56) 0%,
+      rgba(238, 250, 252, 0.40) 100%
+    );
+    backdrop-filter: blur(26px) saturate(220%) brightness(1.05);
+    -webkit-backdrop-filter: blur(26px) saturate(220%) brightness(1.05);
+    box-shadow:
+      0 10px 28px -14px rgba(8, 38, 56, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.86),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.65);
+  }
+
+  html.dark .medex-glass-header {
+    background-color: transparent;
+    background-image: linear-gradient(
+      180deg,
+      rgba(12, 28, 46, 0.60) 0%,
+      rgba(6, 16, 30, 0.48) 100%
+    );
+    backdrop-filter: blur(28px) saturate(200%) brightness(1.06);
+    -webkit-backdrop-filter: blur(28px) saturate(200%) brightness(1.06);
+    box-shadow:
+      0 12px 32px -12px rgba(0, 0, 0, 0.72),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.09);
+  }
+
+  /* Smoked Obsidian Crystal Surface (Top Storefront Bar, Admin Sidebar, Hero Banner) */
+  .medex-glass-dark {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        110% 90% at 14% 0%,
+        rgba(45, 212, 191, 0.14) 0%,
+        rgba(255, 255, 255, 0.05) 38%,
+        rgba(255, 255, 255, 0) 68%
+      ),
+      linear-gradient(
+        160deg,
+        rgba(15, 34, 54, 0.68) 0%,
+        rgba(7, 18, 32, 0.60) 55%,
+        rgba(4, 14, 26, 0.72) 100%
+      );
+    backdrop-filter: blur(28px) saturate(210%);
+    -webkit-backdrop-filter: blur(28px) saturate(210%);
+    box-shadow:
+      0 22px 48px -18px rgba(2, 8, 18, 0.76),
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.24),
+      inset 1px 0 0 rgba(204, 251, 241, 0.10),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* Semantic Tinted Liquid Glass Callout Panels */
+  .medex-glass-amber {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 90% at 10% 0%,
+        rgba(255, 255, 255, 0.66) 0%,
+        rgba(255, 255, 255, 0) 58%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(254, 240, 138, 0.52) 0%,
+        rgba(253, 224, 71, 0.30) 52%,
+        rgba(254, 243, 199, 0.44) 100%
+      );
+    backdrop-filter: blur(22px) saturate(210%) brightness(1.04);
+    -webkit-backdrop-filter: blur(22px) saturate(210%) brightness(1.04);
+    border-color: rgba(255, 255, 255, 0.76);
+    box-shadow:
+      0 18px 40px -18px rgba(146, 64, 14, 0.24),
+      inset 0 1.5px 1px rgba(255, 255, 255, 0.94),
+      inset 1px 0 1px rgba(255, 255, 255, 0.64),
+      inset 0 -1px 1px rgba(217, 119, 6, 0.20);
+  }
+
+  html.dark .medex-glass-amber {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 85% at 10% 0%,
+        rgba(253, 224, 71, 0.18) 0%,
+        rgba(255, 255, 255, 0) 60%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(120, 53, 15, 0.44) 0%,
+        rgba(69, 26, 3, 0.36) 55%,
+        rgba(146, 64, 14, 0.42) 100%
+      );
+    backdrop-filter: blur(24px) saturate(200%);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    border-color: rgba(251, 191, 36, 0.28);
+    box-shadow:
+      0 20px 44px -16px rgba(0, 0, 0, 0.72),
+      inset 0 1px 1px rgba(254, 240, 138, 0.28),
+      inset 0 -1px 1px rgba(245, 158, 11, 0.16);
+  }
+
+  .medex-glass-rose {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 90% at 10% 0%,
+        rgba(255, 255, 255, 0.66) 0%,
+        rgba(255, 255, 255, 0) 58%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(254, 205, 211, 0.54) 0%,
+        rgba(253, 164, 175, 0.30) 52%,
+        rgba(255, 228, 230, 0.44) 100%
+      );
+    backdrop-filter: blur(22px) saturate(210%) brightness(1.04);
+    -webkit-backdrop-filter: blur(22px) saturate(210%) brightness(1.04);
+    border-color: rgba(255, 255, 255, 0.76);
+    box-shadow:
+      0 18px 40px -18px rgba(159, 18, 57, 0.22),
+      inset 0 1.5px 1px rgba(255, 255, 255, 0.94),
+      inset 1px 0 1px rgba(255, 255, 255, 0.64),
+      inset 0 -1px 1px rgba(225, 29, 72, 0.18);
+  }
+
+  html.dark .medex-glass-rose {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 85% at 10% 0%,
+        rgba(251, 113, 133, 0.18) 0%,
+        rgba(255, 255, 255, 0) 60%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(136, 19, 55, 0.44) 0%,
+        rgba(76, 5, 25, 0.36) 55%,
+        rgba(159, 18, 57, 0.42) 100%
+      );
+    backdrop-filter: blur(24px) saturate(200%);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    border-color: rgba(251, 113, 133, 0.28);
+    box-shadow:
+      0 20px 44px -16px rgba(0, 0, 0, 0.72),
+      inset 0 1px 1px rgba(254, 205, 211, 0.28),
+      inset 0 -1px 1px rgba(244, 63, 94, 0.16);
+  }
+
+  .medex-glass-sky {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 90% at 10% 0%,
+        rgba(255, 255, 255, 0.66) 0%,
+        rgba(255, 255, 255, 0) 58%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(186, 230, 253, 0.54) 0%,
+        rgba(125, 211, 252, 0.30) 52%,
+        rgba(224, 242, 254, 0.44) 100%
+      );
+    backdrop-filter: blur(22px) saturate(210%) brightness(1.04);
+    -webkit-backdrop-filter: blur(22px) saturate(210%) brightness(1.04);
+    border-color: rgba(255, 255, 255, 0.76);
+    box-shadow:
+      0 18px 40px -18px rgba(7, 89, 133, 0.24),
+      inset 0 1.5px 1px rgba(255, 255, 255, 0.94),
+      inset 1px 0 1px rgba(255, 255, 255, 0.64),
+      inset 0 -1px 1px rgba(2, 132, 199, 0.18);
+  }
+
+  html.dark .medex-glass-sky {
+    background-color: transparent;
+    background-image:
+      radial-gradient(
+        120% 85% at 10% 0%,
+        rgba(56, 189, 248, 0.18) 0%,
+        rgba(255, 255, 255, 0) 60%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(12, 74, 110, 0.46) 0%,
+        rgba(8, 47, 73, 0.36) 55%,
+        rgba(7, 89, 133, 0.44) 100%
+      );
+    backdrop-filter: blur(24px) saturate(200%);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    border-color: rgba(56, 189, 248, 0.28);
+    box-shadow:
+      0 20px 44px -16px rgba(0, 0, 0, 0.72),
+      inset 0 1px 1px rgba(186, 230, 253, 0.28),
+      inset 0 -1px 1px rgba(14, 165, 233, 0.16);
+  }
+
+  /* GPU-Safe Apple Frosted Crystal Surface (no backdrop-filter — safe for native file pickers & Leaflet maps) */
+  .medex-glass-safe {
+    background-color: #dce9f4;
+    background-image:
+      radial-gradient(
+        110% 65% at 12% 0%,
+        rgba(255, 255, 255, 0.92) 0%,
+        rgba(255, 255, 255, 0.34) 42%,
+        rgba(255, 255, 255, 0) 70%
+      ),
+      radial-gradient(
+        85% 60% at 94% 100%,
+        rgba(20, 184, 166, 0.16) 0%,
+        rgba(125, 211, 252, 0.24) 46%,
+        rgba(255, 255, 255, 0) 76%
+      ),
+      linear-gradient(
+        152deg,
+        rgba(232, 242, 250, 0.96) 0%,
+        rgba(218, 232, 245, 0.95) 52%,
+        rgba(224, 240, 247, 0.96) 100%
+      );
+    border-color: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      0 32px 80px -16px rgba(4, 22, 38, 0.46),
+      0 10px 28px -8px rgba(13, 148, 136, 0.16),
+      inset 0 1.5px 1px rgba(255, 255, 255, 1),
+      inset 1px 0 1px rgba(255, 255, 255, 0.85),
+      inset 0 -1px 1px rgba(13, 148, 136, 0.16);
+  }
+
+  html.dark .medex-glass-safe {
+    background-color: #091727;
+    background-image:
+      radial-gradient(
+        120% 75% at 10% 0%,
+        rgba(255, 255, 255, 0.15) 0%,
+        rgba(45, 212, 191, 0.08) 38%,
+        rgba(255, 255, 255, 0) 68%
+      ),
+      radial-gradient(
+        85% 65% at 96% 100%,
+        rgba(45, 212, 191, 0.15) 0%,
+        rgba(14, 165, 233, 0.06) 48%,
+        rgba(0, 0, 0, 0) 78%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(16, 36, 56, 0.96) 0%,
+        rgba(9, 22, 38, 0.96) 52%,
+        rgba(6, 16, 30, 0.98) 100%
+      );
+    border-color: rgba(255, 255, 255, 0.18);
+    box-shadow:
+      0 32px 80px -16px rgba(0, 0, 0, 0.85),
+      0 8px 24px -6px rgba(0, 0, 0, 0.55),
+      inset 0 1px 1px rgba(255, 255, 255, 0.28),
+      inset 1px 0 1px rgba(204, 251, 241, 0.14),
+      inset 0 -1px 1px rgba(45, 212, 191, 0.14);
+  }
+
+  .medex-glass-well-safe {
+    background-color: rgba(255, 255, 255, 0.72);
+    background-image: linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.86) 0%,
+      rgba(246, 251, 255, 0.66) 100%
+    );
+    border-color: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      0 10px 24px -16px rgba(8, 38, 56, 0.22),
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      inset 0 1px 0.5px rgba(255, 255, 255, 1);
+  }
+
+  html.dark .medex-glass-well-safe {
+    background-color: rgba(15, 32, 50, 0.58);
+    background-image: linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.06) 0%,
+      rgba(8, 20, 35, 0.52) 100%
+    );
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 10px 24px -14px rgba(0, 0, 0, 0.60),
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.16);
+  }
+  .medex-password-protected {
+    user-select: none;
+    -moz-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .medex-password-protected::selection {
+    background: transparent;
+    color: inherit;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
