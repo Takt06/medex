@@ -64,6 +64,7 @@ import {
 import {
   checkMySqlConnection,
   executeSql,
+  getMySqlDiagnosticStatus,
   isMySqlConfigured,
   queryOne,
   queryRows,
@@ -303,6 +304,7 @@ export function createMedExRouter(): express.Router {
       ok: true,
       mysqlConfigured: configured,
       mysqlConnected: connected,
+      mysqlDiagnostic: getMySqlDiagnosticStatus(),
       adminNeedsPasswordSetup,
     });
   });
