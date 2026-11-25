@@ -876,8 +876,21 @@ export const MedExProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     void (async () => {
-      const bootstrap = await fetchMySqlBootstrapStatus();
+      let bootstrap = await fetchMySqlBootstrapStatus();
       if (!active) return;
+
+      // If MySQL is configured on the server but temporarily waking up, retry automatically in background
+      if (bootstrap.mysqlConfigured && !bootstrap.mysqlConnected) {
+        const retryDelaysMs = [2500, 5000, 8000];
+        for (const delayMs of retryDelaysMs) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          if (!active) return;
+          bootstrap = await fetchMySqlBootstrapStatus(true);
+          if (!active) return;
+          if (bootstrap.mysqlConnected) break;
+        }
+      }
+
       setDatabaseConnected(bootstrap.mysqlConnected);
       setAdminNeedsPasswordSetup(bootstrap.adminNeedsPasswordSetup);
 
@@ -1177,7 +1190,7 @@ export const MedExProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ) => {
     if (!isMySqlBackendActive()) {
       if (isMySqlConfiguredOnServer()) {
-        const refreshed = await fetchMySqlBootstrapStatus();
+        const refreshed = await fetchMySqlBootstrapStatus(true);
         setDatabaseConnected(refreshed.mysqlConnected);
         setAdminNeedsPasswordSetup(refreshed.adminNeedsPasswordSetup);
         if (!refreshed.mysqlConnected) {
@@ -1575,7 +1588,7 @@ export const MedExProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     if (!isMySqlBackendActive()) {
       if (isMySqlConfiguredOnServer()) {
-        const refreshed = await fetchMySqlBootstrapStatus();
+        const refreshed = await fetchMySqlBootstrapStatus(true);
         setDatabaseConnected(refreshed.mysqlConnected);
         setAdminNeedsPasswordSetup(refreshed.adminNeedsPasswordSetup);
         if (!refreshed.mysqlConnected) {
