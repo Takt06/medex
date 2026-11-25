@@ -139,16 +139,20 @@ function buildHeaders(includeJson = true): Record<string, string> {
 
 async function apiRequest<T = Record<string, unknown>>(
   url: string,
-  options: { method?: string; body?: unknown; requireAuth?: boolean } = {}
+  options: { method?: string; body?: unknown; requireAuth?: boolean; timeoutMs?: number } = {}
 ): Promise<{ ok: boolean; data?: T; error?: string; status?: number }> {
   if (options.requireAuth && !inMemoryAuthToken) {
     return { ok: false, error: 'Not signed in to MySQL backend.' };
   }
+  const timeoutMs = options.timeoutMs ?? 15000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       method: options.method || 'GET',
       headers: buildHeaders(options.body !== undefined),
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
     });
     const parsed = (await res.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
     if (!res.ok || parsed.ok === false) {
@@ -160,10 +164,18 @@ async function apiRequest<T = Record<string, unknown>>(
     }
     return { ok: true, status: res.status, data: parsed };
   } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return {
+        ok: false,
+        error: 'Server request timed out. Please try again in a moment.',
+      };
+    }
     return {
       ok: false,
       error: err instanceof Error ? err.message : 'Unable to reach MedEx MySQL server.',
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
