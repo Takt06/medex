@@ -142,6 +142,7 @@ import {
   hydrateInventoryAndMerchantStateFromMySql,
   hydrateMedExStateFromMySql,
   isMySqlBackendActive,
+  isMySqlConfiguredOnServer,
   notifyApprovedAdminsInDb,
   PRODUCT_IMAGE_FALLBACKS,
   resolveReturnCsInDb,
@@ -719,7 +720,7 @@ export const MedExProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   useEffect(() => {
-    if (databaseConnected || isMySqlBackendActive()) return;
+    if (databaseConnected || isMySqlBackendActive() || isMySqlConfiguredOnServer()) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
@@ -1175,7 +1176,20 @@ export const MedExProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     password
   ) => {
     if (!isMySqlBackendActive()) {
-      return loginByEmail(email);
+      if (isMySqlConfiguredOnServer()) {
+        const refreshed = await fetchMySqlBootstrapStatus();
+        setDatabaseConnected(refreshed.mysqlConnected);
+        setAdminNeedsPasswordSetup(refreshed.adminNeedsPasswordSetup);
+        if (!refreshed.mysqlConnected) {
+          return {
+            ok: false,
+            error:
+              'MedEx MySQL database is currently unreachable on the server. Please verify the database connection and try again.',
+          };
+        }
+      } else {
+        return loginByEmail(email);
+      }
     }
     if (!password?.trim()) {
       return { ok: false, error: 'Password is required to sign in.' };
@@ -1560,12 +1574,25 @@ export const MedExProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
     }
     if (!isMySqlBackendActive()) {
-      return registerAccount({
-        ...input,
-        first_name: firstNameCheck.normalized,
-        last_name: lastNameCheck.normalized,
-        email: emailCheck.normalized,
-      });
+      if (isMySqlConfiguredOnServer()) {
+        const refreshed = await fetchMySqlBootstrapStatus();
+        setDatabaseConnected(refreshed.mysqlConnected);
+        setAdminNeedsPasswordSetup(refreshed.adminNeedsPasswordSetup);
+        if (!refreshed.mysqlConnected) {
+          return {
+            ok: false,
+            error:
+              'MedEx MySQL database is currently unreachable on the server, so new accounts cannot be registered yet. Please verify the MySQL connection and try again.',
+          };
+        }
+      } else {
+        return registerAccount({
+          ...input,
+          first_name: firstNameCheck.normalized,
+          last_name: lastNameCheck.normalized,
+          email: emailCheck.normalized,
+        });
+      }
     }
     const normalizedPhone = normalizePHPhoneNumber(input.phone_number);
     if (!normalizedPhone) {
