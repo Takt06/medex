@@ -4,7 +4,7 @@ import type {
   MerchantProfile,
   Product,
   UserAccount,
-} from '../types/medex';
+} from '../types/medex.ts';
 import {
   mapDbAddress,
   mapDbMerchantHours,
@@ -12,7 +12,7 @@ import {
   mapDbProduct,
   mapDbUserToUserAccount,
   type DbRow,
-} from './dbMappers';
+} from './dbMappers.ts';
 
 export type RealtimeEventType = 'INSERT' | 'UPDATE' | 'DELETE';
 
