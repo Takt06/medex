@@ -285,9 +285,10 @@ export function createMedExRouter(): express.Router {
   // --------------------------------------------------------------------------
   // 2. AUTH & FIRST-RUN ADMIN PASSWORD BOOTSTRAP
   // --------------------------------------------------------------------------
-  router.get('/auth/bootstrap-status', async (_req, res) => {
+  router.get('/auth/bootstrap-status', async (req, res) => {
     const configured = isMySqlConfigured();
-    const connected = configured ? await checkMySqlConnection() : false;
+    const force = String(req.query.force || '') === '1';
+    const connected = configured ? await checkMySqlConnection(force) : false;
     let adminNeedsPasswordSetup = false;
     if (connected) {
       try {
